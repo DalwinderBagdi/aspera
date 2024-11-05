@@ -1,0 +1,669 @@
+== Aspera Transfer Demo
+
+=== Setup
+
+Aspera allows transfers to various types of storages:
+* File system (local storage, mount point (NFS, CIFS))
+* S3 and other object storages
+
+For the sake of this demo, we are going to use:
+* Source that uses file storage
+* Target that uses object storage
+
+The first step is to set up your two Aspera servers. For this demo, we will deploy:
+
+1. An Aspera HSTS instance running in a Cloud Pak for Integration cluster using the Operator for deployment (we will call this **source**)
+2. An Aspera HSTS instance running in a completely separate Cloud Pak for Integration cluster (we will call this **target**)
+
+We are presuming the operator is already installed.
+
+==== Source Setup
+
+[source,yaml]
+----
+apiVersion: hsts.aspera.ibm.com/v1
+kind: IbmAsperaHsts
+metadata:
+  resourceVersion: '1837723625'
+  name: source
+  namespace: aspera
+spec:
+  ascpconfig:
+    config: ''
+  license:
+    accept: true
+    key: '*****'
+    use: CloudPakForIntegrationProduction
+  aej: {}
+  deployments:
+    default:
+      metadata: {}
+      replicas: 3
+  containers:
+    asperanoded:
+      resources:
+        limits:
+          cpu: '2'
+          memory: 2Gi
+        requests:
+          cpu: 500m
+          memory: 1Gi
+    default:
+      resources:
+        limits:
+          cpu: '1'
+          memory: 500Mi
+        requests:
+          cpu: 100m
+          memory: 250Mi
+  version: 4.4.3
+  storages:
+    - claimName: hsts-transfer-pvc
+      class: ibmc-file-gold-gid
+      deleteClaim: true
+      metadata: {}
+      mountPath: /data/
+      size: 20Gi
+  redis:
+    environment:
+      adminPassword: '*****'
+    external:
+      sentinel: {}
+      tls: {}
+    license: {}
+    members:
+      affinity: {}
+    persistence:
+      enabled: true
+      storageClass: ibmc-file-gold-gid
+    resources:
+      requests:
+        cpu: '1'
+        memory: 8Gi
+    sentinels:
+      affinity: {}
+  publickeys:
+    keys: ''
+  services:
+    httpProxy:
+      metadata: {}
+      type: ClusterIP
+    tcpProxy:
+      metadata: {}
+      type: LoadBalancer
+  sshdconfig:
+    config: ''
+----
+
+This configuration uses a Persistent Volume Claim (PVC) to store data, which we refer to as local data.
+
+==== Target Setup
+
+[source,yaml]
+----
+apiVersion: hsts.aspera.ibm.com/v1
+kind: IbmAsperaHsts
+metadata:
+  name: target
+  namespace: dalli-aspera
+spec:
+  ascpconfig:
+    config: ''
+  license:
+    accept: true
+    key: '*****'
+    use: CloudPakForIntegrationNonProduction
+  aej: {}
+  deployments:
+    default:
+      metadata: {}
+      replicas: 1
+  version: 4.4.3
+  redis:
+    environment:
+      adminPassword: '*****'
+    external:
+      sentinel: {}
+      tls: {}
+    license: {}
+    members:
+      affinity: {}
+    persistence:
+      enabled: false
+    resources:
+      requests: {}
+    sentinels:
+      affinity: {}
+  publickeys:
+    keys: ''
+  services:
+    httpProxy:
+      metadata: {}
+      type: ClusterIP
+    tcpProxy:
+      metadata: {}
+      type: LoadBalancer
+  sshdconfig:
+    config: ''
+----
+
+This configuration does not use a PVC; it will be using cloud object storage.
+
+== Test Transfer
+
+=== Uploading file to source
+
+. View current config
++
+To examine the current configuration settings, use the following command:
++
+[source,bash]
+----
+ascli config preset over
+----
++
+Results:
++
+[source,bash]
+----
++-----------+---------+
+| key       | value   |
++-----------+---------+
+| preset    | config  |
+| parameter | version |
+| value     | 4.16.0  |
++-----------+---------+
+----
+
+. Update Configuration Preset
++
+To update a configuration preset with new values.
++
+An "Option Preset" is simply a collection of parameters and their associated values in a named section in the configuration file. This command modifies the settings associated with the "node_demo" preset. It updates the URL, username, and password parameters, potentially to establish connections with different servers or services.
++
+Choose a configuration name, such as source and create a configuration for more convenience (the same command line args can be recalled later by using -Psource)
++
+[source,bash]
+----
+# oc login
+oc login ...
+
+oc project aspera
+
+#Get the secret containing the credentials
+secret_name=$(oc get secret | grep asperanoded-admin | awk '{print $1}')
+
+#Extract the username and decode it
+aspera_source_host_username=$(oc get secret $secret_name -o jsonpath="{.data['user']}" | base64 -d)
+
+#Extract the password and decode it
+aspera_source_host_password=$(oc get secret $secret_name -o jsonpath="{.data['pass']}" | base64 -d)
+
+#Print the variables (optional)
+echo "Username: $aspera_source_host_username"
+echo "Password: $aspera_source_host_password"
+
+aspera_source_host=$(oc get routes --selector=app.kubernetes.io/managed-by=ibm-aspera-hsts -o=jsonpath='{.items[*].spec.host}' | sed 's|^|https://|')
+
+
+echo "Checking credentials by printing info"
+curl -ik -u "$aspera_source_host_username:$aspera_source_host_password" "$aspera_source_host:443/info"
+
+ascli conf preset update source --url=$aspera_source_host --username=$aspera_source_host_username --password=$aspera_source_host_password
+----
++
+Results:
++
+[source,bash]
+----
+Updated: source
+Saving config file.
+----
+
+. Retrieve node information
++
+Now we can view this configuration when we run node info:
++
+[source,bash]
+----
+ascli -Psource node info
+----
++
+This command provides comprehensive details about the specified node, including application version, current time, license status, operating system, access control lists, and various capabilities and settings associated with the node. This information helps in understanding the current state and capabilities of the node.
++
+Results:
++
+[source,bash]
+----
++--------------------------------------------------+-----------------------------------------------------------------------+
+| key                                              | value                                                                 |
++--------------------------------------------------+-----------------------------------------------------------------------+
+| application                                      | node                                                                  |
+| version                                          | 4.4.3.891                                                             |
+| current_time                                     | 2024-06-12T13:50:28Z                                                  |
+| license_expiration_date                          | 2024-05-31                                                            |
+| license_max_rate                                 | unlimited                                                             |
+| os                                               | Linux 4.18.0-513.18.1.el8_9.x86_64 #1 SMP Thu Feb 1 03:51:05 EST 2024 |
+| aej_status                                       | connected                                                             |
+| async_reporting                                  | yes                                                                   |
+| transfer_activity_reporting                      | yes                                                                   |
+| transfer_user                                    | xfer                                                                  |
+| docroot                                          | <empty string>                                                        |
+| node_id                                          | 42a804fc-664d-4d5b-9474-12fda4d7a112                                  |
+| cluster_id                                       | source                                                                |
+| acls                                             | <empty list>                                                          |
+| access_key_configuration_capabilities.transfer   | cipher                                                                |
+|                                                  | policy                                                                |
+|                                                  | target_rate_cap_kbps                                                  |
+|                                                  | target_rate_kbps                                                      |
+|                                                  | preserve_timestamps                                                   |
+|                                                  | content_protection_secret                                             |
+|                                                  | aggressiveness                                                        |
+|                                                  | token_encryption_key                                                  |
+|                                                  | byok_enabled                                                          |
+|                                                  | bandwidth_flow_network_rc_module                                      |
+|                                                  | file_checksum_type                                                    |
+| access_key_configuration_capabilities.server     | activity_event_logging                                                |
+|                                                  | activity_file_event_logging                                           |
+|                                                  | recursive_counts                                                      |
+|                                                  | aej_logging                                                           |
+|                                                  | wss_enabled                                                           |
+|                                                  | activity_transfer_ignore_skipped_files                                |
+|                                                  | activity_files_max                                                    |
+|                                                  | access_key_credentials_encryption_type                                |
+|                                                  | discovery                                                             |
+|                                                  | auto_delete                                                           |
+|                                                  | allow                                                                 |
+|                                                  | deny                                                                  |
+| capabilities.sync                                | true                                                                  |
+| capabilities.watchfolder                         | true                                                                  |
+| capabilities.symbolic_links                      | false                                                                 |
+| capabilities.move_file                           | true                                                                  |
+| capabilities.move_directory                      | true                                                                  |
+| capabilities.filelock                            | false                                                                 |
+| capabilities.ssh_fingerprint                     | true                                                                  |
+| capabilities.aej_version                         | 1.0                                                                   |
+| capabilities.page                                | false                                                                 |
+| capabilities.file_id_version                     | 2.0                                                                   |
+| capabilities.auto_delete                         | false                                                                 |
+| settings.content_protection_required             | false                                                                 |
+| settings.content_protection_strong_pass_required | false                                                                 |
+| settings.filelock_restriction                    | none                                                                  |
+| settings.ssh_fingerprint                         | 0494b185db3f27c4b0a578b76aed9b0923c02c02                              |
+| settings.wss_enabled                             | false                                                                 |
+| settings.wss_port                                | 9093                                                                  |
++--------------------------------------------------+-----------------------------------------------------------------------+
+----
+
+. List Access Configurations
++
+To list access configurations for a node, use the command:
++
+[source,bash]
+----
+ascli -Psource node acc list
+----
++
+Results:
++
+[source,bash]
+----
+<empty>
+----
+
+. Create the access key for storage
++
+This will auto generate the id and secret so we will specify --show-secrets=yes to view the creds.
++
+[source,bash]
+----
+echo "Creating access keys"
+
+ascli -Psource node acc create @json:'{"storage":{"type":"local","path":"/data"}}' --show-secrets=yes
+----
++
+Results:
++
+[source,bash]
+----
++------------------------+-------------------------------+
+| key                    | value                         |
++------------------------+-------------------------------+
+| id                     | e7q7NiVEFz6rch7MFhLVTkshBi7j6 |
+| secret                 | gsDbCra5E8FhytjyfDP           |
+| root_file_id           | 1                             |
+| token_verification_key | <null>                        |
+| license                | <null>                        |
+| storage.type           | local                         |
+| storage.path           | /data                         |
+| status                 | created                       |
++------------------------+-------------------------------+
+----
+
+. Update access key
+
++
+[source,bash]
+----
+ascli conf preset update my_access_key --username=e7q7NiVEFz6rch7MFhLVTkshBi7j6 --password=gsDbCra5E8FhytjyfDP
+----
++
+Results:
++
+[source,bash]
+----
+Updated: my_access_key
+Saving config file.
+----
+
+. Create a file locally to send to our source
+
++
+[source,bash]
+----
+
+text="Hello world I have been sent from Aspera on 4th November"
+echo "$text" > dallitemp.txt
+truncate -s 524288000 dallitemp.txt
+
+ascli -Psource -Pmy_access_key node upload dallitemp.txt
+----
++
+Results:
++
+[source,bash]
+----
+ Time: 00:00:18 ============================================================================================================================================================================================== 100% 222 Mbps Time: 00:00:1
+----
+
+. Verify file has been uploaded
++
+[source,bash]
+----
+ascli -Psource -Pmy_access_key node br /
+----
++
+Results:
++
+[source,bash]
+----
+Items: 1/1
++-------------+----------------------+
+| key         | value                |
++-------------+----------------------+
+| path        | /dallitemp.txt       |
+| basename    | dallitemp.txt        |
+| type        | file                 |
+| size        | 524288000            |
+| mtime       | 2024-06-13T12:47:42Z |
+| permissions | view, edit, delete   |
++-------------+----------------------+
+----
+
+=== Uploading file source to target
+
+
+. View current config
++
+To examine the current configuration settings, use the following command:
++
+[source,bash]
+----
+ascli config preset over
+----
++
+Results:
++
+[source,bash]
+----
++---------------+-----------+----------------------------------------------------------------------------------------------------------------------------------+
+| preset        | parameter | value                                                                                                                            |
++---------------+-----------+----------------------------------------------------------------------------------------------------------------------------------+
+| config        | version   | 4.16.0                                                                                                                           |
+| source        | url       | https://source-http-proxy-aspera.mycluster-lon05-m3c-8x64-96a0e96e220543b8714ca52e486d2acc-0000.eu-gb.containers.appdomain.cloud |
+| source        | username  | source                                                                                                                           |
+| source        | password  | 🔑                                                                                                                               |
+| my_access_key | username  | e7q7NiVEFz6rch7MFhLVTkshBi7j6                                                                                                    |
+| my_access_key | password  | 🔑                                                                                                                               |
++---------------+-----------+----------------------------------------------------------------------------------------------------------------------------------+
+----
+
+. Update Configuration Preset
++
+[source,bash]
+----
+# oc login to target cluster
+oc login ...
+
+oc project dalli-aspera
+
+#Get the secret containing the credentials
+target_secret_name=$(oc get secret | grep asperanoded-admin | awk '{print $1}')
+
+#Extract the username and decode it
+aspera_target_host_username=$(oc get secret $target_secret_name -o jsonpath="{.data['user']}" | base64 -d)
+
+#Extract the password and decode it
+aspera_target_host_password=$(oc get secret $target_secret_name -o jsonpath="{.data['pass']}" | base64 -d)
+
+#Print the variables (optional)
+echo "Username: $aspera_target_host_username"
+echo "Password: $aspera_target_host_password"
+
+aspera_target_host=$(oc get routes --selector=app.kubernetes.io/managed-by=ibm-aspera-hsts -o=jsonpath='{.items[*].spec.host}' | sed 's|^|https://|')
+
+
+echo "Checking credentials by printing info"
+curl -ik -u "$aspera_target_host_username:$aspera_target_host_password" "$aspera_target_host:443/info"
+
+ascli conf preset update target --url=$aspera_target_host --username=$aspera_target_host_username --password=$aspera_target_host_password
+----
++
+Results:
++
+[source,bash]
+----
+Updated: target
+Saving config file.
+----
+
+. Retrieve node information
++
+Now we can view this configuration when we run node info:
++
+[source,bash]
+----
+ascli -Ptarget node info
+----
++
+Results:
++
+[source,bash]
+----
++--------------------------------------------------+-----------------------------------------------------------------------+
+| key                                              | value                                                                 |
++--------------------------------------------------+-----------------------------------------------------------------------+
+| application                                      | node                                                                  |
+| version                                          | 4.4.3.891                                                             |
+| current_time                                     | 2024-06-13T13:12:06Z                                                  |
+| license_expiration_date                          | 2024-07-31                                                            |
+| license_max_rate                                 | 1000000                                                               |
+| os                                               | Linux 4.18.0-513.18.1.el8_9.x86_64 #1 SMP Thu Feb 1 03:51:05 EST 2024 |
+| aej_status                                       | connected                                                             |
+| async_reporting                                  | yes                                                                   |
+| transfer_activity_reporting                      | yes                                                                   |
+| transfer_user                                    | xfer                                                                  |
+| docroot                                          | <empty string>                                                        |
+| node_id                                          | b6257b68-5ec7-4d14-bd89-59ae2b995e1d                                  |
+| cluster_id                                       | target                                                                |
+| acls                                             | <empty list>                                                          |
+| access_key_configuration_capabilities.transfer   | cipher                                                                |
+|                                                  | policy                                                                |
+|                                                  | target_rate_cap_kbps                                                  |
+|                                                  | target_rate_kbps                                                      |
+|                                                  | preserve_timestamps                                                   |
+|                                                  | content_protection_secret                                             |
+|                                                  | aggressiveness                                                        |
+|                                                  | token_encryption_key                                                  |
+|                                                  | byok_enabled                                                          |
+|                                                  | bandwidth_flow_network_rc_module                                      |
+|                                                  | file_checksum_type                                                    |
+| access_key_configuration_capabilities.server     | activity_event_logging                                                |
+|                                                  | activity_file_event_logging                                           |
+|                                                  | recursive_counts                                                      |
+|                                                  | aej_logging                                                           |
+|                                                  | wss_enabled                                                           |
+|                                                  | activity_transfer_ignore_skipped_files                                |
+|                                                  | activity_files_max                                                    |
+|                                                  | access_key_credentials_encryption_type                                |
+|                                                  | discovery                                                             |
+|                                                  | auto_delete                                                           |
+|                                                  | allow                                                                 |
+|                                                  | deny                                                                  |
+| capabilities.sync                                | true                                                                  |
+| capabilities.watchfolder                         | true                                                                  |
+| capabilities.symbolic_links                      | false                                                                 |
+| capabilities.move_file                           | true                                                                  |
+| capabilities.move_directory                      | true                                                                  |
+| capabilities.filelock                            | false                                                                 |
+| capabilities.ssh_fingerprint                     | true                                                                  |
+| capabilities.aej_version                         | 1.0                                                                   |
+| capabilities.page                                | false                                                                 |
+| capabilities.file_id_version                     | 2.0                                                                   |
+| capabilities.auto_delete                         | false                                                                 |
+| settings.content_protection_required             | false                                                                 |
+| settings.content_protection_strong_pass_required | false                                                                 |
+| settings.filelock_restriction                    | none                                                                  |
+| settings.ssh_fingerprint                         | fe7e4be3336980cb96e4ee8ceb09327432fedd58                              |
+| settings.wss_enabled                             | false                                                                 |
+| settings.wss_port                                | 9093                                                                  |
++--------------------------------------------------+-----------------------------------------------------------------------+
+----
+
+. List Access Configurations
++
+To list access configurations for a node, use the command:
++
+[source,bash]
+----
+ascli -Ptarget node acc list
+----
++
+Results:
++
+[source,bash]
+----
+<empty>
+----
+
+. Create the access key for storage
++
+This will auto generate the id and secret so we will specify --show-secrets=yes to view the creds.
++
+[source,bash]
+----
+echo "Creating access keys"
+
+#Verify json
+echo '{"storage":{"type":"ibm-s3","path":"/","endpoint":"s3.eu-de.cloud-object-storage.appdomain.cloud","bucket":"aspera-cloud-storage-jb-cluster","credentials":{"access_key_id":"FAKE_ID","secret_access_key":"FAKE_KEY"}}}' | jq
+
+ascli -Ptarget node acc create @json:'{"storage":{"type":"ibm-s3","path":"/","endpoint":"s3.eu-de.cloud-object-storage.appdomain.cloud","bucket":"aspera-cloud-storage-jb-cluster","credentials":{"access_key_id":"FAKE_ID","secret_access_key":"FAKE_KEY"}}}' --show-secrets=yes
+----
++
+Results:
++
+[source,bash]
+----
++--------------------------------+-----------------------------------------------+
+| key                            | value                                         |
++--------------------------------+-----------------------------------------------+
+| id                             | CDjgfzgtaFCUhf_BFCajbCFB55gqU                 |
+| secret                         | gscaahtMLBqssTs6jiy                           |
+| root_file_id                   | 1                                             |
+| token_verification_key         | <null>                                        |
+| license                        | <null>                                        |
+| storage.type                   | ibm-s3                                        |
+| storage.path                   | /                                             |
+| storage.endpoint               | s3.eu-de.cloud-object-storage.appdomain.cloud |
+| storage.bucket                 | aspera-cloud-storage-jb-cluster               |
+| storage.storage_class          | STANDARD                                      |
+| storage.server_side_encryption | NONE                                          |
+| status                         | created                                       |
++--------------------------------+-----------------------------------------------+
+----
+
+. Update access key
+
++
+[source,bash]
+----
+ascli conf preset update my_target_access_key --username=CDjgfzgtaFCUhf_BFCajbCFB55gqU --password=gscaahtMLBqssTs6jiy
+----
++
+Results:
++
+[source,bash]
+----
+Updated: my_target_access_key
+Saving config file.
+----
+
+. Let's see what is current on the target
+
++
+[source,bash]
+----
+ascli -Ptarget -Pmy_target_access_key node br /
+----
++
+Results:
++
+[source,bash]
+----
+Items: 1/1
++-------------+----------------------+
+| key         | value                |
++-------------+----------------------+
+| path        | /testfile            |
+| basename    | testfile             |
+| type        | file                 |
+| size        | 1024                 |
+| mtime       | 2024-05-14T17:26:11Z |
+| permissions | view, edit, delete   |
++-------------+----------------------+
+----
+
+. Send file from source to target
+
++
+[source,bash]
+----
+ascli node -Psource -Pmy_access_key download dallitemp.txt --transfer=node --transfer-info=@preset:my_target_access_key --ts=@json:'{"target_rate_kbps":10000000}'
+----
++
+Results:
++
+[source,bash]
+----
+ Time: 00:00:18 ============================================================================================================================================================================================== 100% 222 Mbps Time: 00:00:1
+----
+
+. Verify file has been uploaded
++
+[source,bash]
+----
+ascli -Ptarget -Pmy_target_access_key node br /
+----
++
+Results:
++
+[source,bash]
+----
+╭────────────────┬───────────────┬──────┬───────────┬──────────────────────┬────────────────────╮
+│ path           │ basename      │ type │ size      │ mtime                │ permissions        │
+╞════════════════╪═══════════════╪══════╪═══════════╪══════════════════════╪════════════════════╡
+│ /200KB.1       │ 200KB.1       │ file │ 204800    │ 2024-06-14T10:20:23Z │ view, edit, delete │
+│ /dallitemp.txt │ dallitemp.txt │ file │ 524288000 │ 2024-11-05T09:44:40Z │ view, edit, delete │
+│ /testfile      │ testfile      │ file │ 1024      │ 2024-05-14T17:26:11Z │ view, edit, delete │
+╰────────────────┴───────────────┴──────┴───────────┴──────────────────────┴────────────────────╯
+----
