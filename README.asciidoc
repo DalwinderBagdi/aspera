@@ -7,18 +7,23 @@ Aspera allows transfers to various types of storages:
 * S3 and other object storages
 
 For the sake of this demo, we are going to use:
-* Source that uses file storage
-* Target that uses object storage
+
+- *Source* that uses file storage
+- *Target* that uses object storage
 
 The first step is to set up your two Aspera servers. For this demo, we will deploy:
 
-1. An Aspera HSTS instance running in a Cloud Pak for Integration cluster using the Operator for deployment (we will call this **source**)
+1. An Aspera HSTS instance running in a Cloud Pak for Integration cluster using the Operator for deployment (we will call this **source**).
+
 2. An Aspera HSTS instance running in a completely separate Cloud Pak for Integration cluster (we will call this **target**)
 
 We are presuming the operator is already installed.
 
 ==== Source Setup
 
+.Source YAML
+[%collapsible]
+====
 [source,yaml]
 ----
 apiVersion: hsts.aspera.ibm.com/v1
@@ -94,12 +99,16 @@ spec:
   sshdconfig:
     config: ''
 ----
+====
 
 This configuration uses a Persistent Volume Claim (PVC) to store data, which we refer to as local data.
 
 ==== Target Setup
 
-[source,yaml]
+.Target YAML
+[%collapsible]
+====
+[target,yaml]
 ----
 apiVersion: hsts.aspera.ibm.com/v1
 kind: IbmAsperaHsts
@@ -146,6 +155,7 @@ spec:
   sshdconfig:
     config: ''
 ----
+====
 
 This configuration does not use a PVC; it will be using cloud object storage.
 
@@ -162,8 +172,9 @@ To examine the current configuration settings, use the following command:
 ascli config preset over
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 +-----------+---------+
@@ -174,6 +185,7 @@ Results:
 | value     | 4.16.0  |
 +-----------+---------+
 ----
+====
 
 . Update Configuration Preset
 +
@@ -212,13 +224,15 @@ curl -ik -u "$aspera_source_host_username:$aspera_source_host_password" "$aspera
 ascli conf preset update source --url=$aspera_source_host --username=$aspera_source_host_username --password=$aspera_source_host_password
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 Updated: source
 Saving config file.
 ----
+====
 
 . Retrieve node information
 +
@@ -231,8 +245,9 @@ ascli -Psource node info
 +
 This command provides comprehensive details about the specified node, including application version, current time, license status, operating system, access control lists, and various capabilities and settings associated with the node. This information helps in understanding the current state and capabilities of the node.
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 +--------------------------------------------------+-----------------------------------------------------------------------+
@@ -294,6 +309,7 @@ Results:
 | settings.wss_port                                | 9093                                                                  |
 +--------------------------------------------------+-----------------------------------------------------------------------+
 ----
+====
 
 . List Access Configurations
 +
@@ -304,12 +320,14 @@ To list access configurations for a node, use the command:
 ascli -Psource node acc list
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 <empty>
 ----
+====
 
 . Create the access key for storage
 +
@@ -322,8 +340,9 @@ echo "Creating access keys"
 ascli -Psource node acc create @json:'{"storage":{"type":"local","path":"/data"}}' --show-secrets=yes
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 +------------------------+-------------------------------+
@@ -339,6 +358,7 @@ Results:
 | status                 | created                       |
 +------------------------+-------------------------------+
 ----
+====
 
 . Update access key
 
@@ -348,13 +368,15 @@ Results:
 ascli conf preset update my_access_key --username=e7q7NiVEFz6rch7MFhLVTkshBi7j6 --password=gsDbCra5E8FhytjyfDP
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 Updated: my_access_key
 Saving config file.
 ----
+====
 
 . Create a file locally to send to our source
 
@@ -369,12 +391,14 @@ truncate -s 524288000 dallitemp.txt
 ascli -Psource -Pmy_access_key node upload dallitemp.txt
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
  Time: 00:00:18 ============================================================================================================================================================================================== 100% 222 Mbps Time: 00:00:1
 ----
+====
 
 . Verify file has been uploaded
 +
@@ -383,8 +407,9 @@ Results:
 ascli -Psource -Pmy_access_key node br /
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 Items: 1/1
@@ -399,6 +424,7 @@ Items: 1/1
 | permissions | view, edit, delete   |
 +-------------+----------------------+
 ----
+====
 
 === Uploading file source to target
 
@@ -412,8 +438,9 @@ To examine the current configuration settings, use the following command:
 ascli config preset over
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 +---------------+-----------+----------------------------------------------------------------------------------------------------------------------------------+
@@ -427,6 +454,7 @@ Results:
 | my_access_key | password  | 🔑                                                                                                                               |
 +---------------+-----------+----------------------------------------------------------------------------------------------------------------------------------+
 ----
+====
 
 . Update Configuration Preset
 +
@@ -435,7 +463,7 @@ Results:
 # oc login to target cluster
 oc login ...
 
-oc project dalli-aspera
+oc project target-aspera
 
 #Get the secret containing the credentials
 target_secret_name=$(oc get secret | grep asperanoded-admin | awk '{print $1}')
@@ -459,14 +487,15 @@ curl -ik -u "$aspera_target_host_username:$aspera_target_host_password" "$aspera
 ascli conf preset update target --url=$aspera_target_host --username=$aspera_target_host_username --password=$aspera_target_host_password
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 Updated: target
 Saving config file.
 ----
-
+====
 . Retrieve node information
 +
 Now we can view this configuration when we run node info:
@@ -476,8 +505,9 @@ Now we can view this configuration when we run node info:
 ascli -Ptarget node info
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 +--------------------------------------------------+-----------------------------------------------------------------------+
@@ -539,6 +569,7 @@ Results:
 | settings.wss_port                                | 9093                                                                  |
 +--------------------------------------------------+-----------------------------------------------------------------------+
 ----
+====
 
 . List Access Configurations
 +
@@ -549,12 +580,14 @@ To list access configurations for a node, use the command:
 ascli -Ptarget node acc list
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 <empty>
 ----
+====
 
 . Create the access key for storage
 +
@@ -570,8 +603,9 @@ echo '{"storage":{"type":"ibm-s3","path":"/","endpoint":"s3.eu-de.cloud-object-s
 ascli -Ptarget node acc create @json:'{"storage":{"type":"ibm-s3","path":"/","endpoint":"s3.eu-de.cloud-object-storage.appdomain.cloud","bucket":"aspera-cloud-storage-jb-cluster","credentials":{"access_key_id":"FAKE_ID","secret_access_key":"FAKE_KEY"}}}' --show-secrets=yes
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 +--------------------------------+-----------------------------------------------+
@@ -591,6 +625,7 @@ Results:
 | status                         | created                                       |
 +--------------------------------+-----------------------------------------------+
 ----
+====
 
 . Update access key
 
@@ -600,13 +635,16 @@ Results:
 ascli conf preset update my_target_access_key --username=CDjgfzgtaFCUhf_BFCajbCFB55gqU --password=gscaahtMLBqssTs6jiy
 ----
 +
-Results:
-+
+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 Updated: my_target_access_key
 Saving config file.
 ----
+====
 
 . Let's see what is current on the target
 
@@ -616,8 +654,9 @@ Saving config file.
 ascli -Ptarget -Pmy_target_access_key node br /
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
 Items: 1/1
@@ -632,21 +671,23 @@ Items: 1/1
 | permissions | view, edit, delete   |
 +-------------+----------------------+
 ----
+====
 
 . Send file from source to target
-
 +
 [source,bash]
 ----
 ascli node -Psource -Pmy_access_key download dallitemp.txt --transfer=node --transfer-info=@preset:my_target_access_key --ts=@json:'{"target_rate_kbps":10000000}'
 ----
 +
-Results:
-+
+.Results
+[%collapsible]
+====
 [source,bash]
 ----
  Time: 00:00:18 ============================================================================================================================================================================================== 100% 222 Mbps Time: 00:00:1
 ----
+====
 
 . Verify file has been uploaded
 +
@@ -654,8 +695,6 @@ Results:
 ----
 ascli -Ptarget -Pmy_target_access_key node br /
 ----
-+
-Results:
 +
 [source,bash]
 ----
