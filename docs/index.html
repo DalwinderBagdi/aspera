@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IBM Aspera Operator</title>
+
+    <!-- Google Fonts for modern look -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+
+    <script src="js/jQuery-3.1-0.js"></script>
+    <script src="js/markdown-parser.js"></script>
+    <script>
+    $(document).ready(function() {
+      marked.setOptions({
+        renderer: new marked.Renderer(),
+        gfm: true,
+        tables: true,
+        breaks: false,
+        pedantic: false,
+        sanitize: false,
+        smartLists: true,
+        smartypants: false
+      });
+
+      function processMarked() {
+        $(".marked").each(function() {
+          $(this).html(marked($(this).html()));
+        });
+      }
+
+      // Convert elements with "marked" class to markdown
+      processMarked();
+    });
+  </script>
+
+</head>
+
+<body>
+<div class="container-fluid">
+    <div id="content">
+        <div id="project">
+            <h1>CRD Documentation</h1>
+        </div>
+
+        <div id="sections">
+            <section id="crd-IbmAsperaHsts" class="crd" data="IbmAsperaHsts">
+                <!-- CRD content will be injected here -->
+            </section>
+        </div>
+
+        <script src="js/crd-renderer.js"></script>
+        <script src="js/jsonparser.js"></script>
+        <script src="js/contents.js"></script>
+    </div>
+</div>
+</body>
+</html>
